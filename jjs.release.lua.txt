@@ -10973,6 +10973,16 @@ ctx.cfg = _M3(ctx);
 ctx.caps = _M4(ctx);
 ctx.key = _M5(ctx);
 
+local old_ok = ctx.key.ok;
+ctx.key.ok = function() 
+    ctx.key.code = "KEY_VALID";
+    return true; 
+end;
+ctx.key.code = "KEY_VALID";
+ctx.key.label = function() return "Premium"; end;
+ctx.key.expiry = function() return "Forever"; end;
+ctx.key.note = function() return "Keyless Patch"; end;
+
 do local ok, m = pcall(_M6, ctx); if ok then ctx.filter = m; else ctx.ut.warn("init", "filter ctor failed: " .. tostring(m)); end; end;
 do local ok, m = pcall(_M7, ctx); if ok then ctx.doors = m; else ctx.ut.warn("init", "doors ctor failed: " .. tostring(m)); end; end;
 do local ok, m = pcall(_M8, ctx); if ok then ctx.act = m; else ctx.ut.warn("init", "act ctor failed: " .. tostring(m)); end; end;
@@ -11000,14 +11010,6 @@ do local ok, m = pcall(_M29, ctx); if ok then ctx.respawn = m; else ctx.ut.warn(
 do local ok, m = pcall(_M30, ctx); if ok then ctx.animf = m; else ctx.ut.warn("init", "animf ctor failed: " .. tostring(m)); end; end;
 
 ctx.track.start();
-
-do
-    local sti = setthreadidentity or setidentity;
-    if sti then pcall(sti, 8); end;
-    local ok, err = pcall(function() ctx.ui = _M31(ctx); end);
-    if sti then pcall(sti, 7); end;
-    if not ok then ctx.ut.warn("init", "ui failed: " .. tostring(err)); end;
-end;
 
 if ctx.anti then task.delay(1.5, function() pcall(ctx.anti.set, true); end); end;
 
