@@ -11011,6 +11011,8 @@ do local ok, m = pcall(_M30, ctx); if ok then ctx.animf = m; else ctx.ut.warn("i
 
 ctx.track.start();
 
+ctx.ui = buildCustomUI(ctx);
+
 if ctx.anti then task.delay(1.5, function() pcall(ctx.anti.set, true); end); end;
 
 function ctx.stopall()
