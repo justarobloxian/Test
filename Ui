@@ -1,0 +1,1282 @@
+local function buildCustomUI(ctx)
+    local s = ctx.svc
+    local uis, runs = s.uis, s.runs
+
+    local theme = {
+        bg = Color3.fromRGB(16, 16, 20),
+        elem = Color3.fromRGB(28, 28, 35),
+        elem2 = Color3.fromRGB(38, 38, 46),
+        acc = Color3.fromRGB(100, 80, 255),
+        txt = Color3.fromRGB(220, 220, 225),
+        dim = Color3.fromRGB(140, 140, 150),
+        on = Color3.fromRGB(120, 220, 120),
+        warn = Color3.fromRGB(224, 92, 92),
+        line = Color3.fromRGB(48, 48, 56),
+        ok = Color3.fromRGB(80, 200, 120),
+        amber = Color3.fromRGB(240, 180, 60),
+    }
+
+    local lib = {}
+    lib.flags = {}
+    lib.opts = {}
+    lib.theme = theme
+    lib.dir = "XenonHubJJSV10"
+    lib.cfgname = nil
+    lib.cfgd = nil
+    lib.loading = false
+    lib.gui = nil
+
+    local windows = {}
+    local current_tab = nil
+    local current_section = nil
+    local current_group = nil
+
+    local function nw(cls, props, parent)
+        local o = Instance.new(cls)
+        for k, v in pairs(props) do o[k] = v end
+        o.Parent = parent
+        return o
+    end
+
+    local function crn(o, r) nw("UICorner", {CornerRadius = UDim.new(0, r or 6)}, o) end
+
+    local function stroke(o, c, t) nw("UIStroke", {Color = c or theme.line, Thickness = t or 1}, o) end
+
+    local function makeWindow(opts)
+        local win = {}
+        win.tabs = {}
+        win.tab_buttons = {}
+        win.current_tab = nil
+        win.folder = opts.Folder or "XenonHub"
+        win.key = opts.Key
+
+        local sg = nw("ScreenGui", {
+            Name = win.folder,
+            ResetOnSpawn = false,
+            IgnoreGuiInset = true,
+            DisplayOrder = 999,
+            Parent = (type(gethui) == "function" and gethui()) or s:GetService("CoreGui")
+        })
+        lib.gui = sg
+        win.gui = sg
+
+        local main = nw("Frame", {
+            Size = UDim2.fromOffset(opts.Size and opts.Size.X or 900, opts.Size and opts.Size.Y or 600),
+            Position = UDim2.new(0.5, -450, 0.5, -300),
+            AnchorPoint = Vector2.new(0.5, 0.5),
+            BackgroundColor3 = theme.bg,
+            BorderSizePixel = 0,
+            ClipsDescendants = true,
+            Parent = sg
+        })
+        crn(main, 10)
+        stroke(main, theme.line, 1.5)
+        win.main = main
+
+        local title_bar = nw("Frame", {
+            Size = UDim2.new(1, 0, 0, 36),
+            BackgroundColor3 = theme.elem,
+            BorderSizePixel = 0,
+            Parent = main
+        })
+        crn(title_bar, 10)
+        local title_txt = nw("TextLabel", {
+            Size = UDim2.new(1, -80, 1, 0),
+            Position = UDim2.fromOffset(16, 0),
+            BackgroundTransparency = 1,
+            Text = opts.Title or "Xenon Hub",
+            TextColor3 = theme.txt,
+            TextSize = 16,
+            Font = Enum.Font.GothamBold,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Parent = title_bar
+        })
+        nw("UITextSizeConstraint", {MaxTextSize = 16}, title_txt)
+
+        local close_btn = nw("TextButton", {
+            Position = UDim2.new(1, -32, 0.5, -12),
+            Size = UDim2.fromOffset(24, 24),
+            Text = "✕",
+            TextColor3 = theme.dim,
+            TextSize = 14,
+            Font = Enum.Font.Gotham,
+            BackgroundColor3 = theme.elem2,
+            BorderSizePixel = 0,
+            AutoButtonColor = false,
+            Parent = title_bar
+        })
+        crn(close_btn, 6)
+        close_btn.MouseButton1Click:Connect(function()
+            sg:Destroy()
+            lib.gui = nil
+        end)
+
+        local drag_data = {}
+        title_bar.InputBegan:Connect(function(i)
+            if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+                drag_data.active = true
+                drag_data.start = i.Position
+                drag_data.pos = main.Position
+            end
+        end)
+        uis.InputChanged:Connect(function(i)
+            if not drag_data.active then return end
+            if i.UserInputType ~= Enum.UserInputType.MouseMovement and i.UserInputType ~= Enum.UserInputType.Touch then return end
+            local delta = i.Position - drag_data.start
+            main.Position = UDim2.new(drag_data.pos.X.Scale, drag_data.pos.X.Offset + delta.X,
+                                      drag_data.pos.Y.Scale, drag_data.pos.Y.Offset + delta.Y)
+        end)
+        uis.InputEnded:Connect(function(i)
+            if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+                drag_data.active = false
+            end
+        end)
+
+        if win.key then
+            uis.InputBegan:Connect(function(i, gp)
+                if gp or i.UserInputType ~= Enum.UserInputType.Keyboard then return end
+                if i.KeyCode == win.key then
+                    sg.Enabled = not sg.Enabled
+                end
+            end)
+        end
+
+        local tab_panel = nw("Frame", {
+            Position = UDim2.new(0, 0, 0, 36),
+            Size = UDim2.new(0, 180, 1, -36),
+            BackgroundColor3 = theme.elem,
+            BorderSizePixel = 0,
+            Parent = main
+        })
+        crn(tab_panel, 0)
+
+        local tab_scroll = nw("ScrollingFrame", {
+            Size = UDim2.new(1, 0, 1, 0),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            ScrollBarThickness = 3,
+            ScrollBarImageColor3 = theme.dim,
+            CanvasSize = UDim2.new(0, 0, 0, 0),
+            AutomaticCanvasSize = Enum.AutomaticSize.Y,
+            ScrollingDirection = Enum.ScrollingDirection.Y,
+            Parent = tab_panel
+        })
+        local tab_layout = nw("UIListLayout", {
+            Padding = UDim.new(0, 4),
+            SortOrder = Enum.SortOrder.LayoutOrder,
+            Parent = tab_scroll
+        })
+
+        local content_panel = nw("Frame", {
+            Position = UDim2.new(0, 180, 0, 36),
+            Size = UDim2.new(1, -180, 1, -36),
+            BackgroundColor3 = theme.bg,
+            BorderSizePixel = 0,
+            Parent = main
+        })
+        win.content = content_panel
+
+        function win:Tab(tab_opts)
+            local tab = {}
+            tab.name = tab_opts.Name
+            tab.icon = tab_opts.Icon
+            tab.desc = tab_opts.Desc
+            tab.sections = {}
+            tab.current_section = nil
+            tab.buttons = {}
+
+            local btn = nw("TextButton", {
+                Size = UDim2.new(1, -8, 0, 40),
+                Position = UDim2.new(0, 4, 0, #win.tabs * 44 + 4),
+                Text = "  " .. (tab.icon and tab.icon .. " " or "") .. tab.name,
+                TextColor3 = theme.dim,
+                TextSize = 13,
+                Font = Enum.Font.Gotham,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                BackgroundColor3 = theme.bg,
+                BorderSizePixel = 0,
+                AutoButtonColor = false,
+                Parent = tab_scroll
+            })
+            crn(btn, 8)
+            btn.MouseEnter:Connect(function() btn.BackgroundColor3 = theme.elem2 end)
+            btn.MouseLeave:Connect(function()
+                btn.BackgroundColor3 = (tab == win.current_tab) and theme.acc or theme.bg
+                btn.BackgroundTransparency = (tab == win.current_tab) and 0.2 or 0
+            end)
+            btn.MouseButton1Click:Connect(function()
+                win:SelectTab(tab)
+            end)
+
+            tab.button = btn
+            win.tab_buttons[#win.tab_buttons + 1] = btn
+            win.tabs[#win.tabs + 1] = tab
+
+            local content = nw("ScrollingFrame", {
+                Size = UDim2.new(1, -16, 1, -16),
+                Position = UDim2.fromOffset(8, 8),
+                BackgroundTransparency = 1,
+                BorderSizePixel = 0,
+                ScrollBarThickness = 4,
+                ScrollBarImageColor3 = theme.dim,
+                CanvasSize = UDim2.new(0, 0, 0, 0),
+                AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                ScrollingDirection = Enum.ScrollingDirection.Y,
+                Visible = false,
+                Parent = content_panel
+            })
+            local content_layout = nw("UIListLayout", {
+                Padding = UDim.new(0, 8),
+                SortOrder = Enum.SortOrder.LayoutOrder,
+                Parent = content
+            })
+            tab.content = content
+            tab.content_layout = content_layout
+
+            if #win.tabs == 1 then win:SelectTab(tab) end
+
+            function tab:Section(section_name)
+                local sec = {}
+                sec.name = section_name
+                sec.groups = {}
+                sec.current_group = nil
+
+                local sec_frame = nw("Frame", {
+                    Size = UDim2.new(1, 0, 0, 0),
+                    BackgroundTransparency = 1,
+                    LayoutOrder = #tab.sections + 1,
+                    Parent = tab.content
+                })
+                sec.frame = sec_frame
+
+                local header = nw("TextLabel", {
+                    Size = UDim2.new(1, -16, 0, 28),
+                    Position = UDim2.fromOffset(8, 0),
+                    BackgroundTransparency = 1,
+                    Text = section_name,
+                    TextColor3 = theme.txt,
+                    TextSize = 16,
+                    Font = Enum.Font.GothamBold,
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                    Parent = sec_frame
+                })
+                nw("UITextSizeConstraint", {MaxTextSize = 16}, header)
+
+                local sec_layout = nw("UIListLayout", {
+                    Padding = UDim.new(0, 4),
+                    SortOrder = Enum.SortOrder.LayoutOrder,
+                    Parent = sec_frame
+                })
+
+                tab.sections[#tab.sections + 1] = sec
+                current_section = sec
+
+                function sec:Group(group_opts)
+                    local grp = {}
+                    grp.name = group_opts.Name
+                    grp.side = group_opts.Side or 1
+                    grp.elements = {}
+                    grp.element_objects = {}
+
+                    local group_frame = nw("Frame", {
+                        Size = UDim2.new(1, 0, 0, 0),
+                        BackgroundColor3 = theme.elem,
+                        BorderSizePixel = 0,
+                        LayoutOrder = #sec.groups + 1,
+                        Parent = sec_frame
+                    })
+                    crn(group_frame, 8)
+                    stroke(group_frame, theme.line, 0.5)
+
+                    local group_title = nw("TextLabel", {
+                        Size = UDim2.new(1, -16, 0, 24),
+                        Position = UDim2.fromOffset(8, 4),
+                        BackgroundTransparency = 1,
+                        Text = group_opts.Name or "",
+                        TextColor3 = theme.dim,
+                        TextSize = 12,
+                        Font = Enum.Font.GothamBold,
+                        TextXAlignment = Enum.TextXAlignment.Left,
+                        Parent = group_frame
+                    })
+                    nw("UITextSizeConstraint", {MaxTextSize = 12}, group_title)
+
+                    local inner = nw("Frame", {
+                        Position = UDim2.new(0, 8, 0, 32),
+                        Size = UDim2.new(1, -16, 0, 0),
+                        BackgroundTransparency = 1,
+                        Parent = group_frame
+                    })
+                    grp.inner = inner
+                    local inner_layout = nw("UIListLayout", {
+                        Padding = UDim.new(0, 4),
+                        SortOrder = Enum.SortOrder.LayoutOrder,
+                        Parent = inner
+                    })
+                    grp.inner_layout = inner_layout
+
+                    sec.groups[#sec.groups + 1] = grp
+                    current_group = grp
+
+                    function grp:Toggle(toggle_opts)
+                        local el = {}
+                        el.type = "toggle"
+                        el.name = toggle_opts.Name
+                        el.flag = toggle_opts.Flag
+                        el.default = toggle_opts.Default or false
+                        el.cb = toggle_opts.Callback or function() end
+                        el.keybind_mode = nil
+                        el.keybind_key = nil
+
+                        local flag = el.flag
+                        if flag then
+                            if lib.flags[flag] == nil then lib.flags[flag] = el.default end
+                            el.value = lib.flags[flag]
+                        else
+                            el.value = el.default
+                        end
+
+                        local frame = nw("Frame", {
+                            Size = UDim2.new(1, 0, 0, 28),
+                            BackgroundTransparency = 1,
+                            LayoutOrder = #grp.elements + 1,
+                            Parent = inner
+                        })
+
+                        local label = nw("TextLabel", {
+                            Size = UDim2.new(1, -44, 1, 0),
+                            BackgroundTransparency = 1,
+                            Text = toggle_opts.Name or "",
+                            TextColor3 = theme.txt,
+                            TextSize = 12,
+                            Font = Enum.Font.Gotham,
+                            TextXAlignment = Enum.TextXAlignment.Left,
+                            Parent = frame
+                        })
+                        nw("UITextSizeConstraint", {MaxTextSize = 12}, label)
+
+                        local check = nw("TextButton", {
+                            Position = UDim2.new(1, -34, 0.5, -10),
+                            Size = UDim2.fromOffset(20, 20),
+                            Text = "",
+                            BackgroundColor3 = el.value and theme.acc or theme.elem2,
+                            BorderSizePixel = 0,
+                            AutoButtonColor = false,
+                            Parent = frame
+                        })
+                        crn(check, 4)
+
+                        if el.value then
+                            local tick = nw("TextLabel", {
+                                Size = UDim2.fromScale(1, 1),
+                                BackgroundTransparency = 1,
+                                Text = "✓",
+                                TextColor3 = theme.txt,
+                                TextSize = 14,
+                                Font = Enum.Font.Gotham,
+                                Parent = check
+                            })
+                            nw("UITextSizeConstraint", {MaxTextSize = 14}, tick)
+                        end
+
+                        function el:Set(val, no_cb)
+                            val = val == true
+                            if flag then lib.flags[flag] = val end
+                            el.value = val
+                            check.BackgroundColor3 = val and theme.acc or theme.elem2
+                            check:ClearAllChildren()
+                            if val then
+                                local tick = nw("TextLabel", {
+                                    Size = UDim2.fromScale(1, 1),
+                                    BackgroundTransparency = 1,
+                                    Text = "✓",
+                                    TextColor3 = theme.txt,
+                                    TextSize = 14,
+                                    Font = Enum.Font.Gotham,
+                                    Parent = check
+                                })
+                                nw("UITextSizeConstraint", {MaxTextSize = 14}, tick)
+                            end
+                            if not no_cb and el.cb then pcall(el.cb, val) end
+                        end
+
+                        check.MouseButton1Click:Connect(function()
+                            el:Set(not el.value, false)
+                        end)
+
+                        function el:Keybind(kb_opts)
+                            el.keybind_mode = kb_opts.Mode or "Toggle"
+                            el.keybind_key = kb_opts.Flag
+                            local key_label = nw("TextLabel", {
+                                Position = UDim2.new(1, -72, 0, 0),
+                                Size = UDim2.fromOffset(60, 28),
+                                BackgroundTransparency = 1,
+                                Text = "Key",
+                                TextColor3 = theme.dim,
+                                TextSize = 10,
+                                Font = Enum.Font.Gotham,
+                                TextXAlignment = Enum.TextXAlignment.Right,
+                                Parent = frame
+                            })
+                            nw("UITextSizeConstraint", {MaxTextSize = 10}, key_label)
+                        end
+
+                        grp.elements[#grp.elements + 1] = el
+                        lib.opts[el.flag] = el
+
+                        group_frame.Size = UDim2.new(1, 0, 0, 32 + #grp.elements * 32 + 8)
+                        return el
+                    end
+
+                    function grp:Slider(slider_opts)
+                        local el = {}
+                        el.type = "slider"
+                        el.name = slider_opts.Name
+                        el.flag = slider_opts.Flag
+                        el.min = slider_opts.Min or 0
+                        el.max = slider_opts.Max or 100
+                        el.step = slider_opts.Step or 1
+                        el.suffix = slider_opts.Suffix or ""
+                        el.default = slider_opts.Default or el.min
+                        el.cb = slider_opts.Callback or function() end
+
+                        local flag = el.flag
+                        if flag and lib.flags[flag] == nil then lib.flags[flag] = el.default end
+                        local val = flag and lib.flags[flag] or el.default
+
+                        local frame = nw("Frame", {
+                            Size = UDim2.new(1, 0, 0, 36),
+                            BackgroundTransparency = 1,
+                            LayoutOrder = #grp.elements + 1,
+                            Parent = inner
+                        })
+
+                        local label = nw("TextLabel", {
+                            Size = UDim2.new(1, -80, 0, 16),
+                            BackgroundTransparency = 1,
+                            Text = (el.name or "") .. ":",
+                            TextColor3 = theme.dim,
+                            TextSize = 11,
+                            Font = Enum.Font.Gotham,
+                            TextXAlignment = Enum.TextXAlignment.Left,
+                            Parent = frame
+                        })
+                        nw("UITextSizeConstraint", {MaxTextSize = 11}, label)
+
+                        local val_label = nw("TextLabel", {
+                            Position = UDim2.new(1, -70, 0, 0),
+                            Size = UDim2.fromOffset(70, 16),
+                            BackgroundTransparency = 1,
+                            Text = tostring(val) .. el.suffix,
+                            TextColor3 = theme.acc,
+                            TextSize = 11,
+                            Font = Enum.Font.GothamBold,
+                            TextXAlignment = Enum.TextXAlignment.Right,
+                            Parent = frame
+                        })
+                        nw("UITextSizeConstraint", {MaxTextSize = 11}, val_label)
+
+                        local track = nw("Frame", {
+                            Position = UDim2.new(0, 0, 0, 22),
+                            Size = UDim2.new(1, 0, 0, 6),
+                            BackgroundColor3 = theme.elem2,
+                            BorderSizePixel = 0,
+                            Parent = frame
+                        })
+                        crn(track, 3)
+
+                        local fill = nw("Frame", {
+                            Size = UDim2.new((val - el.min) / (el.max - el.min), 0, 1, 0),
+                            BackgroundColor3 = theme.acc,
+                            BorderSizePixel = 0,
+                            Parent = track
+                        })
+                        crn(fill, 3)
+
+                        local handle = nw("TextButton", {
+                            Position = UDim2.new((val - el.min) / (el.max - el.min), -8, 0.5, -8),
+                            Size = UDim2.fromOffset(16, 16),
+                            Text = "",
+                            BackgroundColor3 = theme.txt,
+                            BorderSizePixel = 0,
+                            AutoButtonColor = false,
+                            Parent = frame
+                        })
+                        crn(handle, 8)
+
+                        local dragging = false
+                        local function updateSlider(pos)
+                            local rel = (pos.X - track.AbsolutePosition.X) / track.AbsoluteSize.X
+                            rel = math.clamp(rel, 0, 1)
+                            local new_val = el.min + (el.max - el.min) * rel
+                            new_val = math.round(new_val / el.step) * el.step
+                            new_val = math.clamp(new_val, el.min, el.max)
+                            if flag then lib.flags[flag] = new_val end
+                            val = new_val
+                            val_label.Text = tostring(val) .. el.suffix
+                            fill.Size = UDim2.new((val - el.min) / (el.max - el.min), 0, 1, 0)
+                            handle.Position = UDim2.new((val - el.min) / (el.max - el.min), -8, 0.5, -8)
+                            if el.cb then pcall(el.cb, val) end
+                        end
+
+                        handle.InputBegan:Connect(function(i)
+                            if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+                                dragging = true
+                                updateSlider(i.Position)
+                            end
+                        end)
+                        uis.InputChanged:Connect(function(i)
+                            if not dragging then return end
+                            if i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch then
+                                updateSlider(i.Position)
+                            end
+                        end)
+                        uis.InputEnded:Connect(function(i)
+                            if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+                                dragging = false
+                            end
+                        end)
+
+                        function el:Set(v, no_cb)
+                            v = math.clamp(tonumber(v) or el.min, el.min, el.max)
+                            if flag then lib.flags[flag] = v end
+                            val = v
+                            val_label.Text = tostring(v) .. el.suffix
+                            fill.Size = UDim2.new((v - el.min) / (el.max - el.min), 0, 1, 0)
+                            handle.Position = UDim2.new((v - el.min) / (el.max - el.min), -8, 0.5, -8)
+                            if not no_cb and el.cb then pcall(el.cb, v) end
+                        end
+
+                        grp.elements[#grp.elements + 1] = el
+                        lib.opts[el.flag] = el
+                        group_frame.Size = UDim2.new(1, 0, 0, 32 + #grp.elements * 40 + 8)
+                        return el
+                    end
+
+                    function grp:Button(btn_opts)
+                        local el = {}
+                        el.type = "button"
+                        el.name = btn_opts.Name
+                        el.cb = btn_opts.Callback or function() end
+
+                        local frame = nw("Frame", {
+                            Size = UDim2.new(1, 0, 0, 28),
+                            BackgroundTransparency = 1,
+                            LayoutOrder = #grp.elements + 1,
+                            Parent = inner
+                        })
+
+                        local btn = nw("TextButton", {
+                            Size = UDim2.new(1, 0, 1, 0),
+                            Text = btn_opts.Name or "",
+                            TextColor3 = theme.txt,
+                            TextSize = 12,
+                            Font = Enum.Font.GothamBold,
+                            BackgroundColor3 = theme.elem2,
+                            BorderSizePixel = 0,
+                            AutoButtonColor = false,
+                            Parent = frame
+                        })
+                        crn(btn, 6)
+                        btn.MouseEnter:Connect(function() btn.BackgroundColor3 = theme.acc end)
+                        btn.MouseLeave:Connect(function() btn.BackgroundColor3 = theme.elem2 end)
+                        btn.MouseButton1Click:Connect(function() if el.cb then task.spawn(el.cb) end end)
+
+                        grp.elements[#grp.elements + 1] = el
+                        group_frame.Size = UDim2.new(1, 0, 0, 32 + #grp.elements * 32 + 8)
+                        return el
+                    end
+
+                    function grp:Dropdown(dd_opts)
+                        local el = {}
+                        el.type = "dropdown"
+                        el.name = dd_opts.Name
+                        el.flag = dd_opts.Flag
+                        el.values = dd_opts.Values or {}
+                        el.default = dd_opts.Default
+                        el.multi = dd_opts.Multi or false
+                        el.cb = dd_opts.Callback or function() end
+
+                        local flag = el.flag
+                        if flag and lib.flags[flag] == nil then
+                            lib.flags[flag] = el.default
+                        end
+                        local val = flag and lib.flags[flag] or el.default
+
+                        local frame = nw("Frame", {
+                            Size = UDim2.new(1, 0, 0, 28),
+                            BackgroundTransparency = 1,
+                            LayoutOrder = #grp.elements + 1,
+                            Parent = inner
+                        })
+
+                        local label = nw("TextLabel", {
+                            Size = UDim2.new(1, -80, 1, 0),
+                            BackgroundTransparency = 1,
+                            Text = (el.name or "") .. ":",
+                            TextColor3 = theme.dim,
+                            TextSize = 11,
+                            Font = Enum.Font.Gotham,
+                            TextXAlignment = Enum.TextXAlignment.Left,
+                            Parent = frame
+                        })
+                        nw("UITextSizeConstraint", {MaxTextSize = 11}, label)
+
+                        local display = nw("TextButton", {
+                            Position = UDim2.new(1, -140, 0, 0),
+                            Size = UDim2.fromOffset(140, 28),
+                            Text = tostring(val),
+                            TextColor3 = theme.txt,
+                            TextSize = 11,
+                            Font = Enum.Font.Gotham,
+                            BackgroundColor3 = theme.elem2,
+                            BorderSizePixel = 0,
+                            AutoButtonColor = false,
+                            Parent = frame
+                        })
+                        crn(display, 4)
+
+                        local expanded = false
+                        local list_frame = nw("Frame", {
+                            Position = UDim2.new(1, -140, 0, 28),
+                            Size = UDim2.fromOffset(140, 0),
+                            BackgroundColor3 = theme.elem,
+                            BorderSizePixel = 0,
+                            ClipsDescendants = true,
+                            Visible = false,
+                            Parent = frame
+                        })
+                        crn(list_frame, 4)
+                        stroke(list_frame, theme.line, 0.5)
+
+                        local list_scroll = nw("ScrollingFrame", {
+                            Size = UDim2.new(1, -4, 1, -4),
+                            Position = UDim2.fromOffset(2, 2),
+                            BackgroundTransparency = 1,
+                            BorderSizePixel = 0,
+                            ScrollBarThickness = 3,
+                            ScrollBarImageColor3 = theme.dim,
+                            CanvasSize = UDim2.new(0, 0, 0, 0),
+                            AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                            ScrollingDirection = Enum.ScrollingDirection.Y,
+                            Parent = list_frame
+                        })
+                        local list_layout = nw("UIListLayout", {
+                            Padding = UDim.new(0, 2),
+                            SortOrder = Enum.SortOrder.LayoutOrder,
+                            Parent = list_scroll
+                        })
+
+                        local function buildList()
+                            list_scroll:ClearAllChildren()
+                            local layout = nw("UIListLayout", {
+                                Padding = UDim.new(0, 2),
+                                SortOrder = Enum.SortOrder.LayoutOrder,
+                                Parent = list_scroll
+                            })
+                            for _, v in pairs(el.values) do
+                                if type(v) == "string" and v ~= "" then
+                                    local item = nw("TextButton", {
+                                        Size = UDim2.new(1, 0, 0, 22),
+                                        Text = v,
+                                        TextColor3 = (val == v) and theme.acc or theme.dim,
+                                        TextSize = 11,
+                                        Font = Enum.Font.Gotham,
+                                        BackgroundColor3 = (val == v) and theme.elem2 or theme.bg,
+                                        BorderSizePixel = 0,
+                                        AutoButtonColor = false,
+                                        Parent = list_scroll
+                                    })
+                                    crn(item, 4)
+                                    item.MouseEnter:Connect(function() item.BackgroundColor3 = theme.elem2 end)
+                                    item.MouseLeave:Connect(function()
+                                        item.BackgroundColor3 = (val == v) and theme.elem2 or theme.bg
+                                    end)
+                                    item.MouseButton1Click:Connect(function()
+                                        val = v
+                                        if flag then lib.flags[flag] = v end
+                                        display.Text = tostring(v)
+                                        if el.cb then pcall(el.cb, v) end
+                                        expanded = false
+                                        list_frame.Visible = false
+                                        list_frame.Size = UDim2.fromOffset(140, 0)
+                                        buildList()
+                                    end)
+                                end
+                            end
+                        end
+                        buildList()
+
+                        display.MouseButton1Click:Connect(function()
+                            expanded = not expanded
+                            list_frame.Visible = expanded
+                            list_frame.Size = expanded and UDim2.fromOffset(140, math.min(#el.values * 24, 120)) or UDim2.fromOffset(140, 0)
+                        end)
+
+                        function el:SetValues(vals, no_cb)
+                            el.values = vals or {}
+                            buildList()
+                        end
+
+                        function el:Set(v, no_cb)
+                            val = v
+                            if flag then lib.flags[flag] = v end
+                            display.Text = tostring(v)
+                            if not no_cb and el.cb then pcall(el.cb, v) end
+                            buildList()
+                        end
+
+                        grp.elements[#grp.elements + 1] = el
+                        lib.opts[el.flag] = el
+                        group_frame.Size = UDim2.new(1, 0, 0, 32 + #grp.elements * 32 + 8)
+                        return el
+                    end
+
+                    function grp:Keybind(kb_opts)
+                        local el = {}
+                        el.type = "keybind"
+                        el.name = kb_opts.Name
+                        el.flag = kb_opts.Flag
+                        el.mode = kb_opts.Mode or "Toggle"
+                        el.cb = kb_opts.Callback or function() end
+                        el.on = false
+                        el.key = Enum.KeyCode.F
+
+                        local frame = nw("Frame", {
+                            Size = UDim2.new(1, 0, 0, 28),
+                            BackgroundTransparency = 1,
+                            LayoutOrder = #grp.elements + 1,
+                            Parent = inner
+                        })
+
+                        local label = nw("TextLabel", {
+                            Size = UDim2.new(1, -120, 1, 0),
+                            BackgroundTransparency = 1,
+                            Text = (el.name or "") .. ":",
+                            TextColor3 = theme.dim,
+                            TextSize = 11,
+                            Font = Enum.Font.Gotham,
+                            TextXAlignment = Enum.TextXAlignment.Left,
+                            Parent = frame
+                        })
+                        nw("UITextSizeConstraint", {MaxTextSize = 11}, label)
+
+                        local btn = nw("TextButton", {
+                            Position = UDim2.new(1, -100, 0, 0),
+                            Size = UDim2.fromOffset(100, 28),
+                            Text = "Bind",
+                            TextColor3 = theme.txt,
+                            TextSize = 11,
+                            Font = Enum.Font.Gotham,
+                            BackgroundColor3 = theme.elem2,
+                            BorderSizePixel = 0,
+                            AutoButtonColor = false,
+                            Parent = frame
+                        })
+                        crn(btn, 4)
+
+                        local listening = false
+                        btn.MouseButton1Click:Connect(function()
+                            listening = true
+                            btn.Text = "..."
+                            btn.TextColor3 = theme.acc
+                        end)
+
+                        uis.InputBegan:Connect(function(i, gp)
+                            if not listening or gp or i.UserInputType ~= Enum.UserInputType.Keyboard then return end
+                            listening = false
+                            el.key = i.KeyCode
+                            btn.Text = i.KeyCode.Name
+                            btn.TextColor3 = theme.txt
+                            if el.flag then lib.flags[el.flag] = el.key end
+                        end)
+
+                        if el.flag then
+                            local k = lib.flags[el.flag]
+                            if k and type(k) == "EnumItem" then el.key = k end
+                            btn.Text = el.key.Name
+                        end
+
+                        function el:Set(v) end
+
+                        grp.elements[#grp.elements + 1] = el
+                        lib.opts[el.flag] = el
+                        group_frame.Size = UDim2.new(1, 0, 0, 32 + #grp.elements * 32 + 8)
+                        return el
+                    end
+
+                    function grp:Colorpicker(cp_opts)
+                        local el = {}
+                        el.type = "colorpicker"
+                        el.name = cp_opts.Name
+                        el.flag = cp_opts.Flag
+                        el.default = cp_opts.Default or Color3.fromRGB(255, 255, 255)
+                        el.cb = cp_opts.Callback or function() end
+
+                        local flag = el.flag
+                        if flag and lib.flags[flag] == nil then lib.flags[flag] = el.default end
+                        local val = flag and lib.flags[flag] or el.default
+
+                        local frame = nw("Frame", {
+                            Size = UDim2.new(1, 0, 0, 28),
+                            BackgroundTransparency = 1,
+                            LayoutOrder = #grp.elements + 1,
+                            Parent = inner
+                        })
+
+                        local label = nw("TextLabel", {
+                            Size = UDim2.new(1, -80, 1, 0),
+                            BackgroundTransparency = 1,
+                            Text = (el.name or "") .. ":",
+                            TextColor3 = theme.dim,
+                            TextSize = 11,
+                            Font = Enum.Font.Gotham,
+                            TextXAlignment = Enum.TextXAlignment.Left,
+                            Parent = frame
+                        })
+                        nw("UITextSizeConstraint", {MaxTextSize = 11}, label)
+
+                        local swatch = nw("TextButton", {
+                            Position = UDim2.new(1, -80, 0.5, -10),
+                            Size = UDim2.fromOffset(20, 20),
+                            Text = "",
+                            BackgroundColor3 = val,
+                            BorderSizePixel = 0,
+                            AutoButtonColor = false,
+                            Parent = frame
+                        })
+                        crn(swatch, 4)
+
+                        local function setColor(c)
+                            val = c
+                            if flag then lib.flags[flag] = c end
+                            swatch.BackgroundColor3 = c
+                            if el.cb then pcall(el.cb, c) end
+                        end
+
+                        local presets = {
+                            Color3.fromRGB(255, 255, 255),
+                            Color3.fromRGB(255, 0, 0),
+                            Color3.fromRGB(0, 255, 0),
+                            Color3.fromRGB(0, 0, 255),
+                            Color3.fromRGB(255, 255, 0),
+                            Color3.fromRGB(255, 0, 255),
+                            Color3.fromRGB(0, 255, 255),
+                            Color3.fromRGB(255, 128, 0),
+                            Color3.fromRGB(128, 0, 255),
+                            Color3.fromRGB(0, 128, 255),
+                        }
+
+                        local palette_open = false
+                        local palette = nw("Frame", {
+                            Position = UDim2.new(1, -200, 0, 28),
+                            Size = UDim2.fromOffset(0, 0),
+                            BackgroundColor3 = theme.elem,
+                            BorderSizePixel = 0,
+                            ClipsDescendants = true,
+                            Visible = false,
+                            Parent = frame
+                        })
+                        crn(palette, 6)
+                        stroke(palette, theme.line, 0.5)
+
+                        local p_scroll = nw("ScrollingFrame", {
+                            Size = UDim2.new(1, -8, 1, -8),
+                            Position = UDim2.fromOffset(4, 4),
+                            BackgroundTransparency = 1,
+                            BorderSizePixel = 0,
+                            ScrollBarThickness = 3,
+                            CanvasSize = UDim2.new(0, 0, 0, 0),
+                            AutomaticCanvasSize = Enum.AutomaticSize.Y,
+                            ScrollingDirection = Enum.ScrollingDirection.Y,
+                            Parent = palette
+                        })
+                        local p_layout = nw("UIListLayout", {
+                            Padding = UDim.new(0, 4),
+                            SortOrder = Enum.SortOrder.LayoutOrder,
+                            Parent = p_scroll
+                        })
+
+                        for _, c in pairs(presets) do
+                            local b = nw("TextButton", {
+                                Size = UDim2.new(1, 0, 0, 24),
+                                Text = "",
+                                BackgroundColor3 = c,
+                                BorderSizePixel = 0,
+                                AutoButtonColor = false,
+                                Parent = p_scroll
+                            })
+                            crn(b, 4)
+                            b.MouseButton1Click:Connect(function()
+                                setColor(c)
+                                palette_open = false
+                                palette.Visible = false
+                                palette.Size = UDim2.fromOffset(0, 0)
+                            end)
+                        end
+
+                        swatch.MouseButton1Click:Connect(function()
+                            palette_open = not palette_open
+                            palette.Visible = palette_open
+                            palette.Size = palette_open and UDim2.fromOffset(120, math.min(#presets * 28, 120)) or UDim2.fromOffset(0, 0)
+                        end)
+
+                        function el:Set(c, no_cb)
+                            setColor(c)
+                        end
+
+                        grp.elements[#grp.elements + 1] = el
+                        lib.opts[el.flag] = el
+                        group_frame.Size = UDim2.new(1, 0, 0, 32 + #grp.elements * 32 + 8)
+                        return el
+                    end
+
+                    function grp:Input(input_opts)
+                        local el = {}
+                        el.type = "input"
+                        el.name = input_opts.Name
+                        el.flag = input_opts.Flag
+                        el.holder = input_opts.Holder or ""
+                        el.cb = input_opts.Callback or function() end
+
+                        local flag = el.flag
+                        if flag and lib.flags[flag] == nil then lib.flags[flag] = "" end
+                        local val = flag and lib.flags[flag] or ""
+
+                        local frame = nw("Frame", {
+                            Size = UDim2.new(1, 0, 0, 28),
+                            BackgroundTransparency = 1,
+                            LayoutOrder = #grp.elements + 1,
+                            Parent = inner
+                        })
+
+                        local label = nw("TextLabel", {
+                            Size = UDim2.new(1, -120, 1, 0),
+                            BackgroundTransparency = 1,
+                            Text = (el.name or "") .. ":",
+                            TextColor3 = theme.dim,
+                            TextSize = 11,
+                            Font = Enum.Font.Gotham,
+                            TextXAlignment = Enum.TextXAlignment.Left,
+                            Parent = frame
+                        })
+                        nw("UITextSizeConstraint", {MaxTextSize = 11}, label)
+
+                        local box = nw("TextBox", {
+                            Position = UDim2.new(1, -120, 0, 0),
+                            Size = UDim2.fromOffset(120, 28),
+                            Text = tostring(val),
+                            PlaceholderText = el.holder or "",
+                            PlaceholderColor3 = theme.dim,
+                            TextColor3 = theme.txt,
+                            TextSize = 11,
+                            Font = Enum.Font.Gotham,
+                            BackgroundColor3 = theme.elem2,
+                            BorderSizePixel = 0,
+                            ClearTextOnFocus = false,
+                            Parent = frame
+                        })
+                        crn(box, 4)
+
+                        box:GetPropertyChangedSignal("Text"):Connect(function()
+                            local txt = box.Text
+                            if flag then lib.flags[flag] = txt end
+                            if el.cb then pcall(el.cb, txt) end
+                        end)
+
+                        function el:Set(v, no_cb)
+                            box.Text = tostring(v)
+                            if flag then lib.flags[flag] = v end
+                            if not no_cb and el.cb then pcall(el.cb, v) end
+                        end
+
+                        grp.elements[#grp.elements + 1] = el
+                        lib.opts[el.flag] = el
+                        group_frame.Size = UDim2.new(1, 0, 0, 32 + #grp.elements * 32 + 8)
+                        return el
+                    end
+
+                    function grp:Label(label_opts)
+                        local el = {}
+                        el.type = "label"
+                        el.text = label_opts or ""
+
+                        local frame = nw("Frame", {
+                            Size = UDim2.new(1, 0, 0, 20),
+                            BackgroundTransparency = 1,
+                            LayoutOrder = #grp.elements + 1,
+                            Parent = inner
+                        })
+
+                        local lbl = nw("TextLabel", {
+                            Size = UDim2.new(1, 0, 1, 0),
+                            BackgroundTransparency = 1,
+                            Text = el.text,
+                            TextColor3 = theme.dim,
+                            TextSize = 11,
+                            Font = Enum.Font.Gotham,
+                            TextXAlignment = Enum.TextXAlignment.Left,
+                            Parent = frame
+                        })
+                        nw("UITextSizeConstraint", {MaxTextSize = 11}, lbl)
+
+                        function el:Set(txt)
+                            lbl.Text = txt
+                        end
+
+                        grp.elements[#grp.elements + 1] = el
+                        group_frame.Size = UDim2.new(1, 0, 0, 32 + #grp.elements * 24 + 8)
+                        return el
+                    end
+
+                    function grp:Divider()
+                        nw("Frame", {
+                            Size = UDim2.new(1, 0, 0, 1),
+                            BackgroundColor3 = theme.line,
+                            BorderSizePixel = 0,
+                            LayoutOrder = #grp.elements + 1,
+                            Parent = inner
+                        })
+                        group_frame.Size = UDim2.new(1, 0, 0, 32 + (#grp.elements + 1) * 8 + 8)
+                    end
+
+                    function grp:Stats(stats)
+                        local stat_objs = {}
+                        local frame = nw("Frame", {
+                            Size = UDim2.new(1, 0, 0, 64),
+                            BackgroundTransparency = 1,
+                            LayoutOrder = #grp.elements + 1,
+                            Parent = inner
+                        })
+                        local layout = nw("UIListLayout", {
+                            Padding = UDim.new(0, 8),
+                            SortOrder = Enum.SortOrder.LayoutOrder,
+                            FillDirection = Enum.FillDirection.Horizontal,
+                            Parent = frame
+                        })
+                        for _, s in pairs(stats) do
+                            local box = nw("Frame", {
+                                Size = UDim2.new(1 / #stats, -8, 1, 0),
+                                BackgroundColor3 = theme.elem2,
+                                BorderSizePixel = 0,
+                                Parent = frame
+                            })
+                            crn(box, 6)
+                            local val_lbl = nw("TextLabel", {
+                                Size = UDim2.new(1, 0, 0, 24),
+                                Position = UDim2.new(0, 0, 0, 4),
+                                BackgroundTransparency = 1,
+                                Text = tostring(s.Value or "0"),
+                                TextColor3 = theme.acc,
+                                TextSize = 18,
+                                Font = Enum.Font.GothamBold,
+                                Parent = box
+                            })
+                            nw("UITextSizeConstraint", {MaxTextSize = 18}, val_lbl)
+                            local name_lbl = nw("TextLabel", {
+                                Size = UDim2.new(1, 0, 0, 16),
+                                Position = UDim2.new(0, 0, 1, -20),
+                                BackgroundTransparency = 1,
+                                Text = s.Name or "",
+                                TextColor3 = theme.dim,
+                                TextSize = 10,
+                                Font = Enum.Font.Gotham,
+                                Parent = box
+                            })
+                            nw("UITextSizeConstraint", {MaxTextSize = 10}, name_lbl)
+                            local obj = { Set = function(self, v) val_lbl.Text = tostring(v) end,
+                                           SetColor = function(self, c) val_lbl.TextColor3 = c end }
+                            stat_objs[#stat_objs + 1] = obj
+                        end
+                        grp.elements[#grp.elements + 1] = stat_objs
+                        group_frame.Size = UDim2.new(1, 0, 0, 32 + (#grp.elements) * 72 + 8)
+                        return stat_objs
+                    end
+
+                    function grp:Hero(hero_opts)
+                        local frame = nw("Frame", {
+                            Size = UDim2.new(1, 0, 0, 80),
+                            BackgroundTransparency = 1,
+                            LayoutOrder = #grp.elements + 1,
+                            Parent = inner
+                        })
+                        local img = nw("ImageLabel", {
+                            Size = UDim2.fromOffset(64, 64),
+                            Position = UDim2.fromOffset(8, 8),
+                            BackgroundTransparency = 1,
+                            Image = hero_opts.Image or "",
+                            Parent = frame
+                        })
+                        crn(img, 32)
+                        local title = nw("TextLabel", {
+                            Position = UDim2.new(0, 80, 0, 8),
+                            Size = UDim2.new(1, -80, 0, 28),
+                            BackgroundTransparency = 1,
+                            Text = hero_opts.Title or "",
+                            TextColor3 = theme.txt,
+                            TextSize = 24,
+                            Font = Enum.Font.GothamBold,
+                            TextXAlignment = Enum.TextXAlignment.Left,
+                            Parent = frame
+                        })
+                        nw("UITextSizeConstraint", {MaxTextSize = 24}, title)
+                        local sub = nw("TextLabel", {
+                            Position = UDim2.new(0, 80, 0, 36),
+                            Size = UDim2.new(1, -80, 0, 20),
+                            BackgroundTransparency = 1,
+                            Text = hero_opts.Sub or "",
+                            TextColor3 = theme.dim,
+                            TextSize = 14,
+                            Font = Enum.Font.Gotham,
+                            TextXAlignment = Enum.TextXAlignment.Left,
+                            Parent = frame
+                        })
+                        nw("UITextSizeConstraint", {MaxTextSize = 14}, sub)
+                        local obj = {
+                            Set = function(self, t, s)
+                                title.Text = t or ""
+                                sub.Text = s or ""
+                            end,
+                            SetImage = function(self, u)
+                                img.Image = u or ""
+                            end
+                        }
+                        grp.elements[#grp.elements + 1] = obj
+                        group_frame.Size = UDim2.new(1, 0, 0, 32 + #grp.elements * 88 + 8)
+                        return obj
+                    end
+
+                    function grp:Info(text)
+                        local frame = nw("Frame", {
+                            Size = UDim2.new(1, 0, 0, 28),
+                            BackgroundColor3 = theme.elem2,
+                            BorderSizePixel = 0,
+                            LayoutOrder = #grp.elements + 1,
+                            Parent = inner
+                        })
+                        crn(frame, 6)
+                        local lbl = nw("TextLabel", {
+                            Size = UDim2.new(1, -12, 1, 0),
+                            Position = UDim2.fromOffset(6, 0),
+                            BackgroundTransparency = 1,
+                            Text = text or "",
+                            TextColor3 = theme.dim,
+                            TextSize = 11,
+                            Font = Enum.Font.Gotham,
+                            TextXAlignment = Enum.TextXAlignment.Left,
+                            Parent = frame
+                        })
+                        nw("UITextSizeConstraint", {MaxTextSize = 11}, lbl)
+                        grp.elements[#grp.elements + 1] = {}
+                        group_frame.Size = UDim2.new(1, 0, 0, 32 + #grp.elements * 32 + 8)
+                    end
+
+                    function grp:Element(which) end
+
+                    return grp
+                end
+
+                return sec
+            end
+
+            return tab
+        end
+
+        function win:SelectTab(tab)
+            if win.current_tab then
+                win.current_tab.content.Visible = false
+                win.current_tab.button.BackgroundColor3 = theme.bg
+                win.current_tab.button.BackgroundTransparency = 0
+            end
+            win.current_tab = tab
+            tab.content.Visible = true
+            tab.button.BackgroundColor3 = theme.acc
+            tab.button.BackgroundTransparency = 0.2
+            tab.content.CanvasSize = UDim2.new(0, 0, 0, 0)
+            task.wait()
+            tab.content.CanvasSize = UDim2.new(0, 0, 0, tab.content.AbsoluteCanvasSize.Y)
+        end
+
+        function win:Settings()
+            return { Section = function(self, name)
+                return { Group = function(self, opts)
+                    local g = {}
+                    function g:Button(o) end
+                    function g:Keybind(o) end
+                    return g
+                end }
+            end }
+        end
+
+        function win:Category(name) end
+
+        function lib:Notify(notif)
+            if not notif then return end
+            local sg = lib.gui
+            if not sg then return end
+            local frame = nw("Frame", {
+                Size = UDim2.fromOffset(280, 60),
+                Position = UDim2.new(0.5, -140, 0, 20),
+                BackgroundColor3 = theme.bg,
+                BorderSizePixel = 0,
+                Parent = sg
+            })
+            crn(frame, 8)
+            stroke(frame, theme.line, 1)
+            local title = nw("TextLabel", {
+                Size = UDim2.new(1, -16, 0, 20),
+                Position = UDim2.fromOffset(8, 4),
+                BackgroundTransparency = 1,
+                Text = notif.Title or "",
+                TextColor3 = theme.acc,
+                TextSize = 14,
+                Font = Enum.Font.GothamBold,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                Parent = frame
+            })
+            nw("UITextSizeConstraint", {MaxTextSize = 14}, title)
+            local body = nw("TextLabel", {
+                Size = UDim2.new(1, -16, 0, 24),
+                Position = UDim2.new(0, 8, 0, 26),
+                BackgroundTransparency = 1,
+                Text = notif.Text or "",
+                TextColor3 = theme.dim,
+                TextSize = 12,
+                Font = Enum.Font.Gotham,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextWrapped = true,
+                Parent = frame
+            })
+            nw("UITextSizeConstraint", {MaxTextSize = 12}, body)
+            task.delay(3, function()
+                if frame.Parent then frame:Destroy() end
+            end)
+        end
+
+        lib.Window = function(_, opts) return makeWindow(opts) end
+
+        function lib:Mask(v) end
+        function lib:Count() return 0 end
+        function lib:Configs() return {} end
+        function lib:SaveCfg(name) end
+        function lib:LoadCfg(name) end
+        function lib:LoadAuto() end
+        function lib:Unload() end
+        function lib:Save() end
+        function lib:Apply() end
+        function lib:Wheel() end
+        function lib:Bubble(v) end
+        function lib:WheelMode(v) end
+
+        return lib
+    end
+
+    UIURL = nil
+
+    ctx.lib = buildCustomUI(ctx)
+    ctx.cfg.bind(ctx.lib.flags)
+
+    warn("[Xenon] Custom UI loaded successfully (no external downloads)")
+
+    return ctx.lib
+end
